@@ -2,8 +2,9 @@ package curupira2
 
 import (
 	"crypto/cipher"
-	"crypto/subtle"
 	"fmt"
+	
+	"github.com/pedroalbanese/curupira1/internal/subtle"
 )
 
 const BlockSize = 12
