@@ -4,7 +4,7 @@ import (
 	"crypto/cipher"
 	"fmt"
 	
-	"github.com/pedroalbanese/curupira1/internal/subtle"
+	"github.com/pedroalbanese/curupira2/internal/subtle"
 )
 
 const BlockSize = 12
