@@ -10,7 +10,7 @@ O **Curupira-2** é um cifrador de bloco involutional desenvolvido para platafor
 |-----------|-------|
 | Tamanho do bloco | 96 bits (12 bytes) |
 | Tamanhos de chave | 96, 144 e 192 bits |
-| Número de rodadas | $R = 10$ (96 bits), $R = 14$ (144 bits), $R = 18$ (192 bits) |
+| Número de rodadas | $R = 10$ (96 bits), $R = 12$ (144 bits), $R = 14$ (192 bits) |
 | Estrutura | Wide Trail Strategy |
 
 ## Organização do Estado
