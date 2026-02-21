@@ -1,6 +1,7 @@
-package main
+package curupira2
 
 import (
+	"crypto/cipher"
 	"fmt"
 )
 
@@ -287,7 +288,6 @@ func (c *Cipher) Encrypt(dst, src []byte) {
 	c.Crypt(temp, src, 0)
 	
 	// Reorganiza para o formato C
-	// A transformação é: pegar os elementos na ordem de colunas
 	dst[0] = temp[0]  // (0,0)
 	dst[1] = temp[3]  // (0,1)
 	dst[2] = temp[6]  // (0,2)
@@ -309,7 +309,6 @@ func (c *Cipher) Decrypt(dst, src []byte) {
 	// Reconstrói o formato Go a partir do formato C
 	temp := make([]byte, 12)
 	
-	// Operação inversa
 	temp[0] = src[0]  // (0,0)
 	temp[1] = src[4]  // (1,0)
 	temp[2] = src[8]  // (2,0)
@@ -328,6 +327,35 @@ func (c *Cipher) Decrypt(dst, src []byte) {
 	
 	// Decripta
 	c.Crypt(dst, temp, 1)
+}
+
+// Sct aplica a transformação Square Complete Transform (4 rounds não chaveados)
+func (c *Cipher) Sct(dst, src []byte) {
+	tmp := make([]byte, 12)
+	copy(tmp, src)
+	
+	// 4 rounds não chaveados
+	for r := 0; r < 4; r++ {
+		// Permutation layer
+		c.sOnRow1(0, 3, tmp)
+		c.swapCT(2, 8, tmp)
+		c.sOnRow1(6, 9, tmp)
+		c.swapCT(5, 11, tmp)
+		
+		// Theta layer sem chave
+		for i := 0; i < 4; i++ {
+			ptr := i * 3
+			aux1 := tmp[ptr] ^ tmp[ptr+1] ^ tmp[ptr+2]
+			aux1 = xTimes(aux1)
+			aux2 := xTimes(aux1)
+			
+			tmp[ptr] ^= aux1
+			tmp[ptr+1] ^= aux2
+			tmp[ptr+2] ^= aux1 ^ aux2
+		}
+	}
+	
+	copy(dst, tmp)
 }
 
 // Erros
@@ -351,5 +379,372 @@ func printMatrix(matrix []byte, label string) {
 			fmt.Printf(" %02x ", matrix[idx])
 		}
 		fmt.Println(" |")
+	}
+}
+
+// =============== IMPLEMENTAÇÃO AEAD LETTERSOUP ===============
+
+// BlockCipher interface para compatibilidade
+type BlockCipher interface {
+	cipher.Block
+	Sct(dst, src []byte)
+}
+
+// Garantir que Cipher implementa BlockCipher
+var _ BlockCipher = (*Cipher)(nil)
+
+// AEAD interface
+type AEAD interface {
+	SetIV(iv []byte)
+	Update(aData []byte)
+	Encrypt(mData, cData []byte)
+	Decrypt(cData, mData []byte)
+	GetTag(tag []byte, tagBits int) []byte
+}
+
+// MAC interface
+type MAC interface {
+	Init()
+	InitWithR(R []byte)
+	Update(aData []byte)
+	GetTag(tag []byte, tagBits int) []byte
+}
+
+// Marvin implementação do MAC
+type Marvin struct {
+	cipher         BlockCipher
+	blockBytes     int
+	mLength        int
+	R              []byte
+	O              []byte
+	buffer         []byte
+	letterSoupMode bool
+}
+
+const c byte = 0x2A
+
+func NewMarvin(cipher BlockCipher, R []byte, letterSoupMode bool) MAC {
+	m := new(Marvin)
+	m.letterSoupMode = letterSoupMode
+	m.cipher = cipher
+	m.blockBytes = cipher.BlockSize()
+	m.buffer = make([]byte, m.blockBytes)
+	m.R = make([]byte, m.blockBytes)
+	m.O = make([]byte, m.blockBytes)
+	
+	if R != nil {
+		m.InitWithR(R)
+	} else {
+		m.Init()
+	}
+	
+	return m
+}
+
+func (m *Marvin) Init() {
+	blockBytes := m.blockBytes
+	
+	// leftPaddedC com constante c no último byte
+	leftPaddedC := make([]byte, blockBytes)
+	leftPaddedC[blockBytes-1] = c
+	
+	m.cipher.Encrypt(m.R, leftPaddedC)
+	xor(m.R, leftPaddedC)
+	copy(m.O, m.R)
+}
+
+func (m *Marvin) InitWithR(R []byte) {
+	copy(m.R, R[:m.blockBytes])
+	copy(m.O, R[:m.blockBytes])
+}
+
+func (m *Marvin) Update(aData []byte) {
+	aLength := len(aData)
+	blockBytes := m.blockBytes
+	
+	M := make([]byte, blockBytes)
+	A := make([]byte, blockBytes)
+	
+	xor(m.buffer, m.R)
+	
+	q := aLength / blockBytes
+	r := aLength % blockBytes
+	
+	for i := 0; i < q; i++ {
+		copy(M, aData[i*blockBytes:(i+1)*blockBytes])
+		m.updateOffset()
+		xor(M, m.O)
+		m.cipher.Sct(A, M)
+		xor(m.buffer, A)
+	}
+	
+	if r != 0 {
+		copy(M[:r], aData[q*blockBytes:])
+		for i := r; i < blockBytes; i++ {
+			M[i] = 0
+		}
+		m.updateOffset()
+		xor(M, m.O)
+		m.cipher.Sct(A, M)
+		xor(m.buffer, A)
+	}
+	
+	m.mLength = aLength
+}
+
+func (m *Marvin) GetTag(tag []byte, tagBits int) []byte {
+	if tag == nil {
+		tag = make([]byte, tagBits/8)
+	}
+	
+	blockBytes := m.blockBytes
+	
+	if m.letterSoupMode {
+		copy(tag, m.buffer[:blockBytes])
+		return tag
+	}
+	
+	A := make([]byte, blockBytes)
+	encryptedA := make([]byte, blockBytes)
+	auxValue1 := make([]byte, blockBytes)
+	auxValue2 := make([]byte, blockBytes)
+	
+	// auxValue1 = rpad(bin(n-tagBits)||1)
+	diff := int8(m.cipher.BlockSize()*8 - tagBits)
+	if diff == 0 {
+		auxValue1[0] = byte(0x80)
+		auxValue1[1] = byte(0x00)
+	} else if diff < 0 {
+		auxValue1[0] = byte(diff)
+		auxValue1[1] = byte(0x80)
+	} else {
+		diff = int8(diff<<1) | int8(0x01)
+		for diff > 0 {
+			diff = int8(diff << 1)
+		}
+		auxValue1[0] = byte(diff)
+		auxValue1[1] = byte(0x00)
+	}
+	
+	// auxValue2 = lpad(bin(|M|))
+	processedBits := 8 * m.mLength
+	for i := 0; i < 4; i++ {
+		auxValue2[blockBytes-i-1] = byte(processedBits >> (8 * i))
+	}
+	
+	copy(A, m.buffer[:blockBytes])
+	xor(A, auxValue1)
+	xor(A, auxValue2)
+	m.cipher.Encrypt(encryptedA, A)
+	
+	copy(tag, encryptedA[:tagBits/8])
+	return tag
+}
+
+func (m *Marvin) updateOffset() {
+	var O0 byte = m.O[0]
+	
+	copy(m.O[0:], m.O[1:12])
+	
+	m.O[9] = byte(m.O[9] ^ O0 ^ ((O0 & 0xFF) >> 3) ^ ((O0 & 0xFF) >> 5))
+	m.O[10] = byte(m.O[10] ^ (O0 << 5) ^ (O0 << 3))
+	m.O[11] = O0
+}
+
+// LetterSoup implementação do modo AEAD
+type LetterSoup struct {
+	mac        MAC
+	cipher     BlockCipher
+	blockBytes int
+	mLength    int
+	hLength    int
+	iv         []byte
+	A          []byte
+	D          []byte
+	R          []byte
+	L          []byte
+}
+
+func NewLetterSoup(cipher BlockCipher) AEAD {
+	mac := NewMarvin(cipher, nil, true)
+	return NewLetterSoupWithMAC(cipher, mac)
+}
+
+func NewLetterSoupWithMAC(cipher BlockCipher, mac MAC) AEAD {
+	l := new(LetterSoup)
+	l.cipher = cipher
+	l.blockBytes = cipher.BlockSize()
+	l.mac = mac
+	return l
+}
+
+func (l *LetterSoup) SetIV(iv []byte) {
+	ivLength := len(iv)
+	blockBytes := l.blockBytes
+	
+	l.iv = make([]byte, ivLength)
+	copy(l.iv, iv[:ivLength])
+	
+	l.L = []byte{}
+	
+	// Step 2 of Algorithm 2 - Page 6
+	l.R = make([]byte, blockBytes)
+	leftPaddedN := make([]byte, blockBytes)
+	
+	copy(leftPaddedN[blockBytes-ivLength:], iv[:blockBytes])
+	l.cipher.Encrypt(l.R, leftPaddedN)
+	xor(l.R, leftPaddedN)
+}
+
+func (l *LetterSoup) Update(aData []byte) {
+	aLength := len(aData)
+	blockBytes := l.blockBytes
+	
+	// Step 4 of Algorithm 2 - Page 6 (L and part of D)
+	l.L = make([]byte, blockBytes)
+	l.D = make([]byte, blockBytes)
+	
+	empty := make([]byte, blockBytes)
+	
+	l.hLength = aLength
+	l.cipher.Encrypt(l.L, empty)
+	
+	l.mac.InitWithR(l.L)
+	l.mac.Update(aData)
+	l.mac.GetTag(l.D, l.cipher.BlockSize()*8)
+}
+
+func (l *LetterSoup) Encrypt(mData, cData []byte) {
+	mLength := len(mData)
+	blockBytes := l.blockBytes
+	
+	// Step 3 of Algorithm 2 - Page 6 (C and part of A)
+	l.A = make([]byte, blockBytes)
+	l.mLength = mLength
+	
+	if cData == nil {
+		cData = make([]byte, blockBytes)
+	}
+	
+	l.LFSRC(mData, cData)
+	
+	l.mac.InitWithR(l.R)
+	l.mac.Update(cData)
+	l.mac.GetTag(l.A, l.cipher.BlockSize()*8)
+}
+
+func (l *LetterSoup) Decrypt(cData, mData []byte) {
+	l.LFSRC(cData, mData)
+}
+
+func (l *LetterSoup) GetTag(tag []byte, tagBits int) []byte {
+	if tag == nil {
+		tag = make([]byte, tagBits/8)
+	}
+	
+	blockBytes := l.blockBytes
+	
+	// Step 3 of Algorithm 2 - Page 6 (completes the part of A due to M)
+	Atemp := make([]byte, blockBytes)
+	copy(Atemp, l.A[:blockBytes])
+	auxValue1 := make([]byte, blockBytes)
+	auxValue2 := make([]byte, blockBytes)
+	
+	// auxValue1 = rpad(bin(n-tagBits)||1)
+	diff := int8(l.cipher.BlockSize()*8 - tagBits)
+	if diff == 0 {
+		auxValue1[0] = byte(0x80)
+		auxValue1[1] = byte(0x00)
+	} else if diff < 0 {
+		auxValue1[0] = byte(diff)
+		auxValue1[1] = byte(0x80)
+	} else {
+		diff = int8(diff<<1) | int8(0x01)
+		for diff > 0 {
+			diff = int8(diff << 1)
+		}
+		auxValue1[0] = byte(diff)
+		auxValue1[1] = byte(0x00)
+	}
+	
+	// auxValue2 = lpad(bin(|M|))
+	for i := 0; i < 4; i++ {
+		auxValue2[blockBytes-i-1] = byte((l.mLength * 8) >> (8 * i))
+	}
+	
+	copy(l.A, Atemp[:blockBytes])
+	xor(Atemp, auxValue1)
+	xor(Atemp, auxValue2)
+	
+	// Steps 4-6 of Algorithm 2 - Page 6 (completes the part of A due to H)
+	if len(l.L) != 0 {
+		// auxValue2 = lpad(bin(|H|))
+		auxValue2 := make([]byte, blockBytes)
+		
+		for i := 0; i < 4; i++ {
+			auxValue2[blockBytes-i-1] = byte((l.hLength * 8) >> (8 * i))
+		}
+		
+		Dtemp := make([]byte, blockBytes)
+		copy(Dtemp, l.D[:blockBytes])
+		
+		xor(Dtemp, auxValue1)
+		xor(Dtemp, auxValue2)
+		l.cipher.Sct(auxValue1, Dtemp)
+		xor(Atemp, auxValue1)
+	}
+	
+	// Step 7 of Algorithm 2 - Page 6
+	l.cipher.Encrypt(auxValue1, Atemp)
+	
+	copy(tag, auxValue1[:tagBits/8])
+	return tag
+}
+
+func (l *LetterSoup) LFSRC(mData, cData []byte) {
+	mLength := len(mData)
+	blockBytes := l.blockBytes
+	
+	// Algorithm 8 - Page 20
+	M := make([]byte, blockBytes)
+	C := make([]byte, blockBytes)
+	O := make([]byte, blockBytes)
+	copy(O, l.R[:blockBytes])
+	
+	q := mLength / blockBytes
+	r := mLength % blockBytes
+	
+	for i := 0; i < q; i++ {
+		copy(M, mData[i*blockBytes:(i+1)*blockBytes])
+		l.updateOffset(O)
+		l.cipher.Encrypt(C, O)
+		xor(C, M)
+		copy(cData[i*blockBytes:], C[:blockBytes])
+	}
+	
+	if r != 0 {
+		copy(M[:r], mData[q*blockBytes:])
+		l.updateOffset(O)
+		l.cipher.Encrypt(C, O)
+		xor(C, M)
+		copy(cData[q*blockBytes:], C[:r])
+	}
+}
+
+func (l *LetterSoup) updateOffset(O []byte) {
+	// Algorithm 6 - Page 19 (w = 8, k1 = 11, k2 = 13, k3 = 16)
+	var O0 byte = O[0]
+	
+	copy(O[0:], O[1:12])
+	
+	O[9] = byte(O[9] ^ O0 ^ ((O0 & 0xFF) >> 3) ^ ((O0 & 0xFF) >> 5))
+	O[10] = byte(O[10] ^ (O0 << 5) ^ (O0 << 3))
+	O[11] = O0
+}
+
+// XOR the contents of b into a in-place
+func xor(a, b []byte) {
+	for i := 0; i < len(a) && i < len(b); i++ {
+		a[i] ^= b[i]
 	}
 }
