@@ -531,6 +531,7 @@ func (m *Marvin) GetTag(tag []byte, tagBits int) []byte {
 	auxValue1 := make([]byte, blockBytes)
 	auxValue2 := make([]byte, blockBytes)
 
+	// auxValue1 = rpad(bin(n-tagBits)||1)
 	diff := int8(m.cipher.BlockSize()*8 - tagBits)
 	if diff == 0 {
 		auxValue1[0] = byte(0x80)
@@ -547,6 +548,7 @@ func (m *Marvin) GetTag(tag []byte, tagBits int) []byte {
 		auxValue1[1] = byte(0x00)
 	}
 
+	// auxValue2 = lpad(bin(|M|))
 	processedBits := 8 * m.mLength
 	for i := 0; i < 4; i++ {
 		auxValue2[blockBytes-i-1] = byte(processedBits >> (8 * i))
@@ -561,7 +563,8 @@ func (m *Marvin) GetTag(tag []byte, tagBits int) []byte {
 	return tag
 }
 
-// updateOffset atualiza o offset O
+// updateOffset atualiza o offset O (Algorithm 6 - Page 19)
+// w = 8, k1 = 11, k2 = 13, k3 = 16
 func (m *Marvin) updateOffset() {
 	var O0 byte = m.O[0]
 
@@ -602,6 +605,7 @@ func NewLetterSoupWithMAC(cipher BlockCipher, mac MAC) AEAD {
 }
 
 // SetIV define o vetor de inicialização
+// Step 2 of Algorithm 2 - Page 6
 func (l *LetterSoup) SetIV(iv []byte) {
 	ivLength := len(iv)
 	blockBytes := l.blockBytes
@@ -620,6 +624,7 @@ func (l *LetterSoup) SetIV(iv []byte) {
 }
 
 // Update processa os dados associados
+// Step 4 of Algorithm 2 - Page 6 (L and part of D)
 func (l *LetterSoup) Update(aData []byte) {
 	aLength := len(aData)
 	blockBytes := l.blockBytes
@@ -638,6 +643,7 @@ func (l *LetterSoup) Update(aData []byte) {
 }
 
 // Encrypt encripta os dados
+// Step 3 of Algorithm 2 - Page 6 (C and part of A)
 func (l *LetterSoup) Encrypt(mData, cData []byte) {
 	mLength := len(mData)
 	blockBytes := l.blockBytes
@@ -662,6 +668,7 @@ func (l *LetterSoup) Decrypt(cData, mData []byte) {
 }
 
 // GetTag retorna a tag de autenticação
+// Steps 3-7 of Algorithm 2 - Page 6
 func (l *LetterSoup) GetTag(tag []byte, tagBits int) []byte {
 	if tag == nil {
 		tag = make([]byte, tagBits/8)
@@ -669,11 +676,13 @@ func (l *LetterSoup) GetTag(tag []byte, tagBits int) []byte {
 
 	blockBytes := l.blockBytes
 
+	// Step 3: Completes the part of A due to M
 	Atemp := make([]byte, blockBytes)
 	copy(Atemp, l.A[:blockBytes])
 	auxValue1 := make([]byte, blockBytes)
 	auxValue2 := make([]byte, blockBytes)
 
+	// auxValue1 = rpad(bin(n-tagBits)||1)
 	diff := int8(l.cipher.BlockSize()*8 - tagBits)
 	if diff == 0 {
 		auxValue1[0] = byte(0x80)
@@ -690,6 +699,7 @@ func (l *LetterSoup) GetTag(tag []byte, tagBits int) []byte {
 		auxValue1[1] = byte(0x00)
 	}
 
+	// auxValue2 = lpad(bin(|M|))
 	for i := 0; i < 4; i++ {
 		auxValue2[blockBytes-i-1] = byte((l.mLength * 8) >> (8 * i))
 	}
@@ -698,7 +708,9 @@ func (l *LetterSoup) GetTag(tag []byte, tagBits int) []byte {
 	xor(Atemp, auxValue1)
 	xor(Atemp, auxValue2)
 
+	// Steps 4-6: Completes the part of A due to H
 	if len(l.L) != 0 {
+		// auxValue2 = lpad(bin(|H|))
 		auxValue2 := make([]byte, blockBytes)
 
 		for i := 0; i < 4; i++ {
@@ -714,6 +726,7 @@ func (l *LetterSoup) GetTag(tag []byte, tagBits int) []byte {
 		xor(Atemp, auxValue1)
 	}
 
+	// Step 7: Final encryption
 	l.cipher.Encrypt(auxValue1, Atemp)
 
 	copy(tag, auxValue1[:tagBits/8])
@@ -721,6 +734,7 @@ func (l *LetterSoup) GetTag(tag []byte, tagBits int) []byte {
 }
 
 // LFSRC implementa o modo LFSR-based keystream generation
+// Algorithm 8 - Page 20
 func (l *LetterSoup) LFSRC(mData, cData []byte) {
 	mLength := len(mData)
 	blockBytes := l.blockBytes
@@ -750,7 +764,8 @@ func (l *LetterSoup) LFSRC(mData, cData []byte) {
 	}
 }
 
-// updateOffset atualiza o offset O
+// updateOffset atualiza o offset O (Algorithm 6 - Page 19)
+// w = 8, k1 = 11, k2 = 13, k3 = 16
 func (l *LetterSoup) updateOffset(O []byte) {
 	var O0 byte = O[0]
 
