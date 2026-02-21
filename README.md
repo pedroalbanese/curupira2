@@ -207,4 +207,4 @@ A implementação segue rigorosamente a especificação do paper, com:
 
 ## Status
 
-Implementação baseada estritamente no paper "The Curupira-2 Block Cipher for Constrained Platforms: Specification and Benchmarking" (PiLBA 2008). Aguardando vetores de teste oficiais dos autores para validação completa.
+Implementação baseada estritamente no paper "The Curupira-2 Block Cipher for Constrained Platforms: Specification and Benchmarking" (PiLBA 2008). ~Aguardando vetores de teste oficiais dos autores para validação completa~. Vetores Fornecidos.
