@@ -1,4 +1,8 @@
-# Curupira-2: Cifrador de Bloco para Plataformas Restritas
+# Curupira-2 🇧🇷
+[![ISC License](http://img.shields.io/badge/license-ISC-blue.svg)](https://github.com/pedroalbanese/curupira2/blob/master/LICENSE.md) 
+[![GoDoc](https://godoc.org/github.com/pedroalbanese/curupira2?status.png)](http://godoc.org/github.com/pedroalbanese/curupira2)
+[![Go Report Card](https://goreportcard.com/badge/github.com/pedroalbanese/curupira2)](https://goreportcard.com/report/github.com/pedroalbanese/curupira2)
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/pedroalbanese/curupira2)](https://github.com/pedroalbanese/curupira2/releases)
 
 ## Visão Geral
 
