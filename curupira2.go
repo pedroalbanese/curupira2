@@ -411,15 +411,6 @@ func printMatrix(matrix []byte, label string) {
 
 // =============== IMPLEMENTAÇÃO AEAD LETTERSOUP ===============
 
-// MAC interface
-type MAC interface {
-	Init()
-	InitWithR(R []byte)
-	Update(aData []byte)
-	GetTag(tag []byte, tagBits int) []byte
-}
-
-// AEAD interface
 type AEAD interface {
 	SetIV(iv []byte)
 	Update(aData []byte)
@@ -428,154 +419,6 @@ type AEAD interface {
 	GetTag(tag []byte, tagBits int) []byte
 }
 
-const c byte = 0x2A
-
-// Marvin implementação do MAC
-type Marvin struct {
-	cipher         BlockCipher
-	blockBytes     int
-	mLength        int
-	R              []byte
-	O              []byte
-	buffer         []byte
-	letterSoupMode bool
-}
-
-// NewMarvin cria uma nova instância do Marvin MAC
-func NewMarvin(cipher BlockCipher, R []byte, letterSoupMode bool) MAC {
-	m := new(Marvin)
-	m.letterSoupMode = letterSoupMode
-	m.cipher = cipher
-	m.blockBytes = cipher.BlockSize()
-	m.buffer = make([]byte, m.blockBytes)
-	m.R = make([]byte, m.blockBytes)
-	m.O = make([]byte, m.blockBytes)
-
-	if R != nil {
-		m.InitWithR(R)
-	} else {
-		m.Init()
-	}
-
-	return m
-}
-
-// Init inicializa o Marvin com R = E(0^b || c) XOR (0^b || c)
-func (m *Marvin) Init() {
-	blockBytes := m.blockBytes
-
-	leftPaddedC := make([]byte, blockBytes)
-	leftPaddedC[blockBytes-1] = c
-
-	m.cipher.Encrypt(m.R, leftPaddedC)
-	xor(m.R, leftPaddedC)
-	copy(m.O, m.R)
-}
-
-// InitWithR inicializa o Marvin com um R fornecido
-func (m *Marvin) InitWithR(R []byte) {
-	copy(m.R, R[:m.blockBytes])
-	copy(m.O, R[:m.blockBytes])
-}
-
-// Update processa os dados de autenticação
-func (m *Marvin) Update(aData []byte) {
-	aLength := len(aData)
-	blockBytes := m.blockBytes
-
-	M := make([]byte, blockBytes)
-	A := make([]byte, blockBytes)
-
-	xor(m.buffer, m.R)
-
-	q := aLength / blockBytes
-	r := aLength % blockBytes
-
-	for i := 0; i < q; i++ {
-		copy(M, aData[i*blockBytes:(i+1)*blockBytes])
-		m.updateOffset()
-		xor(M, m.O)
-		m.cipher.Sct(A, M)
-		xor(m.buffer, A)
-	}
-
-	if r != 0 {
-		copy(M[:r], aData[q*blockBytes:])
-		for i := r; i < blockBytes; i++ {
-			M[i] = 0
-		}
-		m.updateOffset()
-		xor(M, m.O)
-		m.cipher.Sct(A, M)
-		xor(m.buffer, A)
-	}
-
-	m.mLength = aLength
-}
-
-// GetTag retorna a tag de autenticação
-func (m *Marvin) GetTag(tag []byte, tagBits int) []byte {
-	if tag == nil {
-		tag = make([]byte, tagBits/8)
-	}
-
-	blockBytes := m.blockBytes
-
-	if m.letterSoupMode {
-		copy(tag, m.buffer[:blockBytes])
-		return tag
-	}
-
-	A := make([]byte, blockBytes)
-	encryptedA := make([]byte, blockBytes)
-	auxValue1 := make([]byte, blockBytes)
-	auxValue2 := make([]byte, blockBytes)
-
-	// auxValue1 = rpad(bin(n-tagBits)||1)
-	diff := int8(m.cipher.BlockSize()*8 - tagBits)
-	if diff == 0 {
-		auxValue1[0] = byte(0x80)
-		auxValue1[1] = byte(0x00)
-	} else if diff < 0 {
-		auxValue1[0] = byte(diff)
-		auxValue1[1] = byte(0x80)
-	} else {
-		diff = int8(diff<<1) | int8(0x01)
-		for diff > 0 {
-			diff = int8(diff << 1)
-		}
-		auxValue1[0] = byte(diff)
-		auxValue1[1] = byte(0x00)
-	}
-
-	// auxValue2 = lpad(bin(|M|))
-	processedBits := 8 * m.mLength
-	for i := 0; i < 4; i++ {
-		auxValue2[blockBytes-i-1] = byte(processedBits >> (8 * i))
-	}
-
-	copy(A, m.buffer[:blockBytes])
-	xor(A, auxValue1)
-	xor(A, auxValue2)
-	m.cipher.Encrypt(encryptedA, A)
-
-	copy(tag, encryptedA[:tagBits/8])
-	return tag
-}
-
-// updateOffset atualiza o offset O (Algorithm 6 - Page 19)
-// w = 8, k1 = 11, k2 = 13, k3 = 16
-func (m *Marvin) updateOffset() {
-	var O0 byte = m.O[0]
-
-	copy(m.O[0:], m.O[1:12])
-
-	m.O[9] = byte(m.O[9] ^ O0 ^ ((O0 & 0xFF) >> 3) ^ ((O0 & 0xFF) >> 5))
-	m.O[10] = byte(m.O[10] ^ (O0 << 5) ^ (O0 << 3))
-	m.O[11] = O0
-}
-
-// LetterSoup implementação do modo AEAD
 type LetterSoup struct {
 	mac        MAC
 	cipher     BlockCipher
@@ -589,101 +432,94 @@ type LetterSoup struct {
 	L          []byte
 }
 
-// NewLetterSoup cria uma nova instância do LetterSoup
 func NewLetterSoup(cipher BlockCipher) AEAD {
 	mac := NewMarvin(cipher, nil, true)
 	return NewLetterSoupWithMAC(cipher, mac)
 }
 
-// NewLetterSoupWithMAC cria uma nova instância do LetterSoup com um MAC fornecido
 func NewLetterSoupWithMAC(cipher BlockCipher, mac MAC) AEAD {
 	l := new(LetterSoup)
 	l.cipher = cipher
 	l.blockBytes = cipher.BlockSize()
 	l.mac = mac
+
 	return l
 }
 
-// SetIV define o vetor de inicialização
-// Step 2 of Algorithm 2 - Page 6
-func (l *LetterSoup) SetIV(iv []byte) {
+func (this *LetterSoup) SetIV(iv []byte) {
 	ivLength := len(iv)
-	blockBytes := l.blockBytes
+	blockBytes := this.blockBytes
 
-	l.iv = make([]byte, ivLength)
-	copy(l.iv, iv[:ivLength])
+	this.iv = make([]byte, ivLength)
+	copy(this.iv, iv[:ivLength])
 
-	l.L = []byte{}
+	this.L = []byte{}
 
-	l.R = make([]byte, blockBytes)
+	// Step 2 of Algorithm 2 - Page 6
+	this.R = make([]byte, blockBytes)
 	leftPaddedN := make([]byte, blockBytes)
 
 	copy(leftPaddedN[blockBytes-ivLength:], iv[:blockBytes])
-	l.cipher.Encrypt(l.R, leftPaddedN)
-	xor(l.R, leftPaddedN)
+	this.cipher.Encrypt(this.R, leftPaddedN)
+	xor(this.R, leftPaddedN)
 }
 
-// Update processa os dados associados
-// Step 4 of Algorithm 2 - Page 6 (L and part of D)
-func (l *LetterSoup) Update(aData []byte) {
+func (this *LetterSoup) Update(aData []byte) {
 	aLength := len(aData)
-	blockBytes := l.blockBytes
+	blockBytes := this.blockBytes
 
-	l.L = make([]byte, blockBytes)
-	l.D = make([]byte, blockBytes)
+	// Step 4 of Algorithm 2 - Page 6 (L and part of D)
+	this.L = make([]byte, blockBytes)
+	this.D = make([]byte, blockBytes)
 
 	empty := make([]byte, blockBytes)
 
-	l.hLength = aLength
-	l.cipher.Encrypt(l.L, empty)
+	this.hLength = aLength
+	this.cipher.Encrypt(this.L, empty)
 
-	l.mac.InitWithR(l.L)
-	l.mac.Update(aData)
-	l.mac.GetTag(l.D, l.cipher.BlockSize()*8)
+	this.mac.InitWithR(this.L)
+	this.mac.Update(aData)
+	this.mac.GetTag(this.D, this.cipher.BlockSize()*8)
 }
 
-// Encrypt encripta os dados
-// Step 3 of Algorithm 2 - Page 6 (C and part of A)
-func (l *LetterSoup) Encrypt(mData, cData []byte) {
-	mLength := len(mData)
-	blockBytes := l.blockBytes
+func (this *LetterSoup) Encrypt(dst, src []byte) {
+	mLength := len(src)
+	blockBytes := this.blockBytes
 
-	l.A = make([]byte, blockBytes)
-	l.mLength = mLength
+	// Step 3 of Algorithm 2 - Page 6 (C and part of A)
+	this.A = make([]byte, blockBytes)
+	this.mLength = mLength
 
-	if cData == nil {
-		cData = make([]byte, blockBytes)
+	if dst == nil {
+		dst = make([]byte, blockBytes)
 	}
 
-	l.LFSRC(mData, cData)
+	this.LFSRC(src, dst)
 
-	l.mac.InitWithR(l.R)
-	l.mac.Update(cData)
-	l.mac.GetTag(l.A, l.cipher.BlockSize()*8)
+	this.mac.InitWithR(this.R)
+	this.mac.Update(dst)
+	this.mac.GetTag(this.A, this.cipher.BlockSize()*8)
 }
 
-// Decrypt decripta os dados
-func (l *LetterSoup) Decrypt(cData, mData []byte) {
-	l.LFSRC(cData, mData)
+func (this *LetterSoup) Decrypt(dst, src []byte) {
+	this.LFSRC(src, dst)
 }
 
-// GetTag retorna a tag de autenticação
-// Steps 3-7 of Algorithm 2 - Page 6
-func (l *LetterSoup) GetTag(tag []byte, tagBits int) []byte {
+func (this *LetterSoup) GetTag(tag []byte, tagBits int) []byte {
 	if tag == nil {
 		tag = make([]byte, tagBits/8)
 	}
 
-	blockBytes := l.blockBytes
+	blockBytes := this.blockBytes
 
-	// Step 3: Completes the part of A due to M
+	// Step 3 of Algorithm 2 - Page 6 (completes the part of A due to M)
 	Atemp := make([]byte, blockBytes)
-	copy(Atemp, l.A[:blockBytes])
+	copy(Atemp[0:], this.A[0:blockBytes])
 	auxValue1 := make([]byte, blockBytes)
 	auxValue2 := make([]byte, blockBytes)
 
 	// auxValue1 = rpad(bin(n-tagBits)||1)
-	diff := int8(l.cipher.BlockSize()*8 - tagBits)
+	diff := int8(this.cipher.BlockSize()*8 - tagBits)
 	if diff == 0 {
 		auxValue1[0] = byte(0x80)
 		auxValue1[1] = byte(0x00)
@@ -695,78 +531,80 @@ func (l *LetterSoup) GetTag(tag []byte, tagBits int) []byte {
 		for diff > 0 {
 			diff = int8(diff << 1)
 		}
+
 		auxValue1[0] = byte(diff)
 		auxValue1[1] = byte(0x00)
 	}
 
 	// auxValue2 = lpad(bin(|M|))
 	for i := 0; i < 4; i++ {
-		auxValue2[blockBytes-i-1] = byte((l.mLength * 8) >> (8 * i))
+		auxValue2[blockBytes-i-1] = byte((this.mLength * 8) >> (8 * i))
 	}
 
-	copy(l.A, Atemp[:blockBytes])
+	copy(this.A[0:], Atemp[0:blockBytes])
 	xor(Atemp, auxValue1)
 	xor(Atemp, auxValue2)
 
-	// Steps 4-6: Completes the part of A due to H
-	if len(l.L) != 0 {
+	// Steps 4-6 of Algorithm 2 - Page 6 (completes the part of A due to H)
+	if len(this.L) != 0 {
 		// auxValue2 = lpad(bin(|H|))
 		auxValue2 := make([]byte, blockBytes)
 
 		for i := 0; i < 4; i++ {
-			auxValue2[blockBytes-i-1] = byte((l.hLength * 8) >> (8 * i))
+			auxValue2[blockBytes-i-1] = byte((this.hLength * 8) >> (8 * i))
 		}
 
 		Dtemp := make([]byte, blockBytes)
-		copy(Dtemp, l.D[:blockBytes])
+		copy(Dtemp[0:], this.D[0:blockBytes])
 
 		xor(Dtemp, auxValue1)
 		xor(Dtemp, auxValue2)
-		l.cipher.Sct(auxValue1, Dtemp)
+		this.cipher.Sct(auxValue1, Dtemp)
 		xor(Atemp, auxValue1)
 	}
 
-	// Step 7: Final encryption
-	l.cipher.Encrypt(auxValue1, Atemp)
+	// Step 7 of Algorithm 2 - Page 6
+	this.cipher.Encrypt(auxValue1, Atemp)
 
-	copy(tag, auxValue1[:tagBits/8])
+	for i := 0; i < tagBits/8; i++ {
+		tag[i] = auxValue1[i]
+	}
+
 	return tag
 }
 
-// LFSRC implementa o modo LFSR-based keystream generation
-// Algorithm 8 - Page 20
-func (l *LetterSoup) LFSRC(mData, cData []byte) {
+func (this *LetterSoup) LFSRC(mData, cData []byte) {
 	mLength := len(mData)
-	blockBytes := l.blockBytes
+	blockBytes := this.blockBytes
 
+	// Algorithm 8 - Page 20
 	M := make([]byte, blockBytes)
 	C := make([]byte, blockBytes)
 	O := make([]byte, blockBytes)
-	copy(O, l.R[:blockBytes])
+	copy(O[0:], this.R[0:blockBytes])
 
 	q := mLength / blockBytes
 	r := mLength % blockBytes
 
 	for i := 0; i < q; i++ {
-		copy(M, mData[i*blockBytes:(i+1)*blockBytes])
-		l.updateOffset(O)
-		l.cipher.Encrypt(C, O)
+		copy(M[0:], mData[i*blockBytes:])
+		this.updateOffset(O)
+		this.cipher.Encrypt(C, O)
 		xor(C, M)
-		copy(cData[i*blockBytes:], C[:blockBytes])
+		copy(cData[i*blockBytes:], C[0:])
 	}
 
 	if r != 0 {
-		copy(M[:r], mData[q*blockBytes:])
-		l.updateOffset(O)
-		l.cipher.Encrypt(C, O)
+		copy(M[0:r], mData[q*blockBytes:])
+		this.updateOffset(O)
+		this.cipher.Encrypt(C, O)
 		xor(C, M)
-		copy(cData[q*blockBytes:], C[:r])
+		copy(cData[q*blockBytes:], C[0:r])
 	}
 }
 
-// updateOffset atualiza o offset O (Algorithm 6 - Page 19)
-// w = 8, k1 = 11, k2 = 13, k3 = 16
-func (l *LetterSoup) updateOffset(O []byte) {
+func (this *LetterSoup) updateOffset(O []byte) {
+	// Algorithm 6 - Page 19 (w = 8, k1 = 11, k2 = 13, k3 = 16)
 	var O0 byte = O[0]
 
 	copy(O[0:], O[1:12])
@@ -776,9 +614,450 @@ func (l *LetterSoup) updateOffset(O []byte) {
 	O[11] = O0
 }
 
-// xor faz XOR de dois slices de bytes
-func xor(a, b []byte) {
-	for i := 0; i < len(a) && i < len(b); i++ {
-		a[i] ^= b[i]
+type MAC interface {
+	Init()
+	InitWithR(R []byte)
+	Update(aData []byte)
+	GetTag(tag []byte, tagBits int) []byte
+}
+
+const c byte = 0x2A
+
+type Marvin struct {
+	cipher         BlockCipher
+	blockBytes     int
+	mLength        int
+	R              []byte
+	O              []byte
+	buffer         []byte
+	letterSoupMode bool
+}
+
+func NewMarvin(cipher BlockCipher, R []byte, letterSoupMode bool) MAC {
+	m := new(Marvin)
+	m.letterSoupMode = letterSoupMode
+	m.cipher = cipher
+	m.blockBytes = cipher.BlockSize()
+
+	if R != nil {
+		m.InitWithR(R)
+	} else {
+		m.Init()
 	}
+
+	return m
+}
+
+func (this *Marvin) Init() {
+	blockBytes := this.blockBytes
+
+	this.buffer = make([]byte, blockBytes)
+	this.R = make([]byte, blockBytes)
+	this.O = make([]byte, blockBytes)
+
+	// Step 2 of Algorithm 1 - Page 4
+	leftPaddedC := make([]byte, blockBytes)
+
+	leftPaddedC[blockBytes-1] = c
+	this.cipher.Encrypt(this.R, leftPaddedC)
+
+	xor(this.R, leftPaddedC)
+	copy(this.O, this.R[0:blockBytes])
+}
+
+func (this *Marvin) InitWithR(R []byte) {
+	blockBytes := this.blockBytes
+
+	this.buffer = make([]byte, blockBytes)
+	this.R = make([]byte, blockBytes)
+	this.O = make([]byte, blockBytes)
+
+	copy(this.R, R[0:blockBytes])
+	copy(this.O, R[0:blockBytes])
+}
+
+func (this *Marvin) Update(aData []byte) {
+	aLength := len(aData)
+	blockBytes := this.blockBytes
+
+	M := make([]byte, blockBytes)
+	A := make([]byte, blockBytes)
+
+	q := aLength / blockBytes
+	r := aLength % blockBytes
+
+	// Steps 1, 3-5, 6-7 (only R) of Algorithm 1 - Page 4
+	xor(this.buffer, this.R)
+
+	for i := 0; i < q; i++ {
+		copy(M[0:], aData[i*blockBytes:])
+		this.updateOffset()
+		xor(M, this.O)
+		this.cipher.Sct(A, M)
+		xor(this.buffer, A)
+	}
+
+	if r != 0 {
+		copy(M[0:], aData[q*blockBytes:q*blockBytes+r])
+
+		for i := r; i < blockBytes; i++ {
+			M[i] = 0
+		}
+
+		this.updateOffset()
+		xor(M, this.O)
+		this.cipher.Sct(A, M)
+		xor(this.buffer, A)
+	}
+
+	this.mLength = aLength
+}
+
+func (this *Marvin) GetTag(tag []byte, tagBits int) []byte {
+	if tag == nil {
+		tag = make([]byte, tagBits/8)
+	}
+
+	blockBytes := this.blockBytes
+
+	if this.letterSoupMode {
+		copy(tag[0:], this.buffer[0:blockBytes])
+		return tag
+	}
+
+	// Steps 6-9 of Algorithm 1 - Page 4
+	A := make([]byte, blockBytes)
+	encryptedA := make([]byte, blockBytes)
+	auxValue1 := make([]byte, blockBytes)
+	auxValue2 := make([]byte, blockBytes)
+
+	// auxValue1 = rpad(bin(n-tagBits)||1)
+	diff := int8(this.cipher.BlockSize()*8 - tagBits)
+	if diff == 0 {
+		auxValue1[0] = byte(0x80)
+		auxValue1[1] = byte(0x00)
+	} else if diff < 0 {
+		auxValue1[0] = byte(diff)
+		auxValue1[1] = byte(0x80)
+	} else {
+		diff = int8(diff<<1) | int8(0x01)
+		for diff > 0 {
+			diff = int8(diff << 1)
+		}
+
+		auxValue1[0] = byte(diff)
+		auxValue1[1] = byte(0x00)
+	}
+
+	// auxValue2 = lpad(bin(|M|))
+	processedBits := 8 * this.mLength
+	for i := 0; i < 4; i++ {
+		auxValue2[blockBytes-i-1] = byte(processedBits >> (8 * i))
+	}
+
+	copy(A[0:], this.buffer[0:blockBytes])
+
+	xor(A, auxValue1)
+	xor(A, auxValue2)
+	this.cipher.Encrypt(encryptedA, A)
+
+	for i := 0; i < tagBits/8; i++ {
+		tag[i] = encryptedA[i]
+	}
+
+	return tag
+}
+
+func (this *Marvin) updateOffset() {
+	// Algorithm 6 - Page 19 (w = 8, k1 = 11, k2 = 13, k3 = 16)
+	var O0 byte = this.O[0]
+
+	copy(this.O[0:], this.O[1:12])
+
+	this.O[9] = byte(this.O[9] ^ O0 ^ ((O0 & 0xFF) >> 3) ^ ((O0 & 0xFF) >> 5))
+	this.O[10] = byte(this.O[10] ^ (O0 << 5) ^ (O0 << 3))
+	this.O[11] = O0
+}
+
+var xTimesTable = [256]byte{0x00, 0x02, 0x04, 0x06, 0x08, 0x0A, 0x0C, 0x0E, 0x10, 0x12, 0x14, 0x16, 0x18, 0x1A, 0x1C, 0x1E, 0x20, 0x22, 0x24, 0x26, 0x28, 0x2A, 0x2C, 0x2E, 0x30, 0x32, 0x34, 0x36, 0x38, 0x3A, 0x3C, 0x3E, 0x40, 0x42, 0x44, 0x46, 0x48, 0x4A, 0x4C, 0x4E, 0x50, 0x52, 0x54, 0x56, 0x58, 0x5A, 0x5C, 0x5E, 0x60, 0x62, 0x64, 0x66, 0x68, 0x6A, 0x6C, 0x6E, 0x70, 0x72, 0x74, 0x76, 0x78, 0x7A, 0x7C, 0x7E, 0x80, 0x82, 0x84, 0x86, 0x88, 0x8A, 0x8C, 0x8E, 0x90, 0x92, 0x94, 0x96, 0x98, 0x9A, 0x9C, 0x9E, 0xA0, 0xA2, 0xA4, 0xA6, 0xA8, 0xAA, 0xAC, 0xAE, 0xB0, 0xB2, 0xB4, 0xB6, 0xB8, 0xBA, 0xBC, 0xBE, 0xC0, 0xC2, 0xC4, 0xC6, 0xC8, 0xCA, 0xCC, 0xCE, 0xD0, 0xD2, 0xD4, 0xD6, 0xD8, 0xDA, 0xDC, 0xDE, 0xE0, 0xE2, 0xE4, 0xE6, 0xE8, 0xEA, 0xEC, 0xEE, 0xF0, 0xF2, 0xF4, 0xF6, 0xF8, 0xFA, 0xFC, 0xFE, 0x4D, 0x4F, 0x49, 0x4B, 0x45, 0x47, 0x41, 0x43, 0x5D, 0x5F, 0x59, 0x5B, 0x55, 0x57, 0x51, 0x53, 0x6D, 0x6F, 0x69, 0x6B, 0x65, 0x67, 0x61, 0x63, 0x7D, 0x7F, 0x79, 0x7B, 0x75, 0x77, 0x71, 0x73, 0x0D, 0x0F, 0x09, 0x0B, 0x05, 0x07, 0x01, 0x03, 0x1D, 0x1F, 0x19, 0x1B, 0x15, 0x17, 0x11, 0x13, 0x2D, 0x2F, 0x29, 0x2B, 0x25, 0x27, 0x21, 0x23, 0x3D, 0x3F, 0x39, 0x3B, 0x35, 0x37, 0x31, 0x33, 0xCD, 0xCF, 0xC9, 0xCB, 0xC5, 0xC7, 0xC1, 0xC3, 0xDD, 0xDF, 0xD9, 0xDB, 0xD5, 0xD7, 0xD1, 0xD3, 0xED, 0xEF, 0xE9, 0xEB, 0xE5, 0xE7, 0xE1, 0xE3, 0xFD, 0xFF, 0xF9, 0xFB, 0xF5, 0xF7, 0xF1, 0xF3, 0x8D, 0x8F, 0x89, 0x8B, 0x85, 0x87, 0x81, 0x83, 0x9D, 0x9F, 0x99, 0x9B, 0x95, 0x97, 0x91, 0x93, 0xAD, 0xAF, 0xA9, 0xAB, 0xA5, 0xA7, 0xA1, 0xA3, 0xBD, 0xBF, 0xB9, 0xBB, 0xB5, 0xB7, 0xB1, 0xB3}
+
+var sBoxTable = [256]byte{0xBA, 0x54, 0x2F, 0x74, 0x53, 0xD3, 0xD2, 0x4D, 0x50, 0xAC, 0x8D, 0xBF, 0x70, 0x52, 0x9A, 0x4C, 0xEA, 0xD5, 0x97, 0xD1, 0x33, 0x51, 0x5B, 0xA6, 0xDE, 0x48, 0xA8, 0x99, 0xDB, 0x32, 0xB7, 0xFC, 0xE3, 0x9E, 0x91, 0x9B, 0xE2, 0xBB, 0x41, 0x6E, 0xA5, 0xCB, 0x6B, 0x95, 0xA1, 0xF3, 0xB1, 0x02, 0xCC, 0xC4, 0x1D, 0x14, 0xC3, 0x63, 0xDA, 0x5D, 0x5F, 0xDC, 0x7D, 0xCD, 0x7F, 0x5A, 0x6C, 0x5C, 0xF7, 0x26, 0xFF, 0xED, 0xE8, 0x9D, 0x6F, 0x8E, 0x19, 0xA0, 0xF0, 0x89, 0x0F, 0x07, 0xAF, 0xFB, 0x08, 0x15, 0x0D, 0x04, 0x01, 0x64, 0xDF, 0x76, 0x79, 0xDD, 0x3D, 0x16, 0x3F, 0x37, 0x6D, 0x38, 0xB9, 0x73, 0xE9, 0x35, 0x55, 0x71, 0x7B, 0x8C, 0x72, 0x88, 0xF6, 0x2A, 0x3E, 0x5E, 0x27, 0x46, 0x0C, 0x65, 0x68, 0x61, 0x03, 0xC1, 0x57, 0xD6, 0xD9, 0x58, 0xD8, 0x66, 0xD7, 0x3A, 0xC8, 0x3C, 0xFA, 0x96, 0xA7, 0x98, 0xEC, 0xB8, 0xC7, 0xAE, 0x69, 0x4B, 0xAB, 0xA9, 0x67, 0x0A, 0x47, 0xF2, 0xB5, 0x22, 0xE5, 0xEE, 0xBE, 0x2B, 0x81, 0x12, 0x83, 0x1B, 0x0E, 0x23, 0xF5, 0x45, 0x21, 0xCE, 0x49, 0x2C, 0xF9, 0xE6, 0xB6, 0x28, 0x17, 0x82, 0x1A, 0x8B, 0xFE, 0x8A, 0x09, 0xC9, 0x87, 0x4E, 0xE1, 0x2E, 0xE4, 0xE0, 0xEB, 0x90, 0xA4, 0x1E, 0x85, 0x60, 0x00, 0x25, 0xF4, 0xF1, 0x94, 0x0B, 0xE7, 0x75, 0xEF, 0x34, 0x31, 0xD4, 0xD0, 0x86, 0x7E, 0xAD, 0xFD, 0x29, 0x30, 0x3B, 0x9F, 0xF8, 0xC6, 0x13, 0x06, 0x05, 0xC5, 0x11, 0x77, 0x7C, 0x7A, 0x78, 0x36, 0x1C, 0x39, 0x59, 0x18, 0x56, 0xB3, 0xB0, 0x24, 0x20, 0xB2, 0x92, 0xA3, 0xC0, 0x44, 0x62, 0x10, 0xB4, 0x84, 0x43, 0x93, 0xC2, 0x4A, 0xBD, 0x8F, 0x2D, 0xBC, 0x9C, 0x6A, 0x40, 0xCF, 0xA2, 0x80, 0x4F, 0x1F, 0xCA, 0xAA, 0x42}
+
+// XOR the contents of b into a in-place
+func xor(a, b []byte) {
+	subtle.XORBytes(a, a, b)
+}
+
+func initXTimesTable() {
+	var u, d int
+
+	for u = 0x00; u <= 0xFF; u++ {
+		d = u << 1
+		if d >= 0x100 {
+			d = d ^ 0x14D
+		}
+
+		xTimesTable[u] = byte(d)
+	}
+}
+
+func initSBoxTable() {
+	P := []int{
+		0x3, 0xF, 0xE, 0x0, 0x5, 0x4, 0xB, 0xC, 0xD, 0xA, 0x9, 0x6,
+		0x7, 0x8, 0x2, 0x1,
+	}
+	Q := []int{
+		0x9, 0xE, 0x5, 0x6, 0xA, 0x2, 0x3, 0xC, 0xF, 0x0, 0x4, 0xD,
+		0x7, 0xB, 0x1, 0x8,
+	}
+
+	var u, uh1, uh2, ul1, ul2 int
+
+	for u = 0x00; u <= 0xFF; u++ {
+		uh1 = P[byte(u>>4)&0xF]
+		ul1 = Q[byte(u&0xF)]
+		uh2 = Q[byte(uh1&0xC)^byte(int(ul1>>2)&0x3)]
+		ul2 = P[byte(int(uh1<<2)&0xC)^byte(ul1&0x3)]
+		uh1 = P[byte(uh2&0xC)^byte(int(ul2>>2)&0x3)]
+		ul1 = Q[byte(int(uh2<<2)&0xC)^byte(ul2&0x3)]
+
+		sBoxTable[u] = byte((uh1 << 4) ^ ul1)
+	}
+}
+
+func xTimes(u byte) byte {
+	return xTimesTable[u&0xFF]
+}
+
+func cTimes(u byte) byte {
+	// see page 13, item 5.
+	return xTimes(
+		xTimes(
+			xTimes(
+				xTimes(u)^u,
+			) ^ u,
+		),
+	)
+}
+
+func dTimesa(a []byte, j int, b []byte) {
+	// see page 13.
+	var d int = 3 * j // Column delta
+	var v byte = xTimes(byte(a[0+d] ^ a[1+d] ^ a[2+d]))
+	var w byte = xTimes(v)
+
+	b[0+d] = byte(a[0+d] ^ v)
+	b[1+d] = byte(a[1+d] ^ w)
+	b[2+d] = byte(a[2+d] ^ v ^ w)
+}
+
+func eTimesa(a []byte, j int, b []byte, e bool) {
+	// see page 14.
+	var d int = 3 * j // Column delta.
+	var v byte = byte(a[0+d] ^ a[1+d] ^ a[2+d])
+
+	if e {
+		v = cTimes(v)
+	} else {
+		v = byte(cTimes(v) ^ v)
+	}
+
+	b[0+d] = byte(a[0+d] ^ v)
+	b[1+d] = byte(a[1+d] ^ v)
+	b[2+d] = byte(a[2+d] ^ v)
+}
+
+func sBox(u byte) byte {
+	return sBoxTable[u&0xFF]
+}
+
+func applyNonLinearLayer(a []byte) []byte {
+	// see page 6.
+	b := make([]byte, 12)
+
+	for i := 0; i < 12; i++ {
+		b[i] = sBox(a[i])
+	}
+
+	return b
+}
+
+func applyPermutationLayer(a []byte) []byte {
+	// see page 7.
+	b := make([]byte, 12)
+
+	for i := 0; i < 3; i++ {
+		for j := 0; j < 4; j++ {
+			b[i+3*j] = a[i+3*(i^j)]
+		}
+	}
+
+	return b
+}
+
+func applyLinearDiffusionLayer(a []byte) []byte {
+	// see page 7.
+	b := make([]byte, 12)
+
+	for j := 0; j < 4; j++ {
+		dTimesa(a, j, b)
+	}
+
+	return b
+}
+
+func applyKeyAddition(a, kr []byte) []byte {
+	// see page 7.
+	b := make([]byte, 12)
+
+	for i := 0; i < 3; i++ {
+		for j := 0; j < 4; j++ {
+			b[i+3*j] = byte(a[i+3*j] ^ kr[i+3*j])
+		}
+	}
+
+	return b
+}
+
+func performWhiteningRound(a, k0 []byte) []byte {
+	// see page 9.
+	return applyKeyAddition(a, k0)
+}
+
+func performLastRound(a, kR []byte) []byte {
+	// see page 9.
+	return applyKeyAddition(
+		applyPermutationLayer(
+			applyNonLinearLayer(a),
+		),
+		kR,
+	)
+}
+
+func performRound(a, kr []byte) []byte {
+	// see page 9.
+	return applyKeyAddition(
+		applyLinearDiffusionLayer(
+			applyPermutationLayer(
+				applyNonLinearLayer(a),
+			),
+		),
+		kr,
+	)
+}
+
+func performUnkeyedRound(a []byte) []byte {
+	return applyLinearDiffusionLayer(
+		applyPermutationLayer(
+			applyNonLinearLayer(a),
+		),
+	)
+}
+
+func calculateScheduleConstant(s int, keyBits int) []byte {
+	// see page 7
+	var t int = keyBits / 48
+	var q []byte = make([]byte, 3*2*t)
+
+	if s == 0 {
+		return q
+	}
+
+	// For i = 0
+	for j := 0; j < 2*t; j++ {
+		q[3*j] = sBox(byte(2*t*(s-1) + j))
+		// Note: 2t(s-1) + j is at most 144 for 192 bits cipher key.
+	}
+
+	// For i > 0
+	for i := 1; i < 3; i++ {
+		for j := 0; j < 2*t; j++ {
+			q[i+3*j] = 0
+		}
+	}
+
+	return q
+}
+
+func applyConstantAddition(Kr []byte, subkeyRank int, keyBits, t int) []byte {
+	// see page 8
+	var b []byte = make([]byte, 3*2*t)
+
+	// Do constant addition
+	var q []byte = calculateScheduleConstant(subkeyRank, keyBits)
+	for i := 0; i < 3; i++ {
+		for j := 0; j < 2*t; j++ {
+			b[i+3*j] = byte(Kr[i+3*j] ^ q[i+3*j])
+		}
+	}
+
+	return b
+}
+
+func applyCyclicShift(a []byte, t int) []byte {
+	// see page 8
+	b := make([]byte, 3*2*t)
+
+	for j := 0; j < 2*t; j++ {
+		// For i = 0.
+		b[3*j] = a[3*j]
+		// For i = 1.
+		b[1+3*j] = a[1+3*byte((j+1)%(2*t))]
+
+		// For i = 2.
+		if j > 0 {
+			b[2+3*j] = a[2+3*byte((j-1)%(2*t))]
+			// Note that (0 - 1) % 2t would give -1.
+		} else {
+			b[2] = a[2+3*byte(2*t-1)]
+		}
+	}
+
+	return b
+}
+
+func applyLinearDiffusion(a []byte, t int) []byte {
+	// see page 8
+	b := make([]byte, 3*2*t)
+
+	for j := 0; j < 2*t; j++ {
+		eTimesa(a, j, b, true)
+	}
+
+	return b
+}
+
+func calculateNextSubkey(Kr []byte, subkeyRank int, keyBits, t int) []byte {
+	// see pages 7, 8 and 9.
+	return applyLinearDiffusion(
+		applyCyclicShift(
+			applyConstantAddition(
+				Kr,
+				subkeyRank,
+				keyBits,
+				t,
+			),
+			t,
+		),
+		t,
+	)
+}
+
+func selectRoundKey(Kr []byte) []byte {
+	// see page 9.
+	kr := make([]byte, 12)
+
+	// For i = 0.
+	for j := 0; j < 4; j++ {
+		kr[3*j] = sBox(Kr[3*j])
+	}
+
+	// For i > 0.
+	for i := 1; i < 3; i++ {
+		for j := 0; j < 4; j++ {
+			kr[i+3*j] = Kr[i+3*j]
+		}
+	}
+
+	return kr
 }
