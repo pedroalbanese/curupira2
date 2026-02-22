@@ -206,7 +206,6 @@ A implementação segue rigorosamente a especificação do paper, com:
 - Interface `cipher.Block` do Go
 - Suporte a todos os tamanhos de chave (96, 144, 192 bits)
 - LetterSoup e Marvin incluídos
-- Operações constant-time via `crypto/subtle`
 - Testes de propriedades criptográficas (efeito avalanche, chaves de rodada, etc.)
 
 ## Status
