@@ -376,10 +376,11 @@ func TestLetterSoupBasic(t *testing.T) {
 	plaintext := []byte("mensagem secreta")
 	ciphertext := make([]byte, len(plaintext))
 
-	aead.Encrypt(plaintext, ciphertext)
+	// CORRIGIDO: dst = ciphertext, src = plaintext
+	aead.Encrypt(ciphertext, plaintext)
 
 	decrypted := make([]byte, len(plaintext))
-	aead.Decrypt(ciphertext, decrypted)
+	aead.Decrypt(decrypted, ciphertext)  // dst = decrypted, src = ciphertext
 
 	if !bytes.Equal(plaintext, decrypted) {
 		t.Errorf("LetterSoup: decifragem falhou\nOriginal: %x\nDecifrado: %x", plaintext, decrypted)
@@ -479,10 +480,10 @@ func TestLetterSoupWithDifferentKeys(t *testing.T) {
 		plaintext := []byte("mensagem secreta para teste")
 		ciphertext := make([]byte, len(plaintext))
 
-		aead.Encrypt(plaintext, ciphertext)
+		aead.Encrypt(ciphertext, plaintext) 
 
 		decrypted := make([]byte, len(plaintext))
-		aead.Decrypt(ciphertext, decrypted)
+		aead.Decrypt(decrypted, ciphertext)
 
 		if !bytes.Equal(plaintext, decrypted) {
 			t.Errorf("LetterSoup com chave %d: decifragem falhou", keySize)
