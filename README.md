@@ -6,7 +6,7 @@
 
 ## Visão Geral
 
-O **Curupira-2** é um cifrador de bloco involutional desenvolvido para plataformas com recursos limitados (sensores, dispositivos móveis, IoT), baseado no paper de Simplício Jr. et al. (PiLBA 2008).
+O **Curupira-2** é um cifrador de bloco involutional desenvolvido para plataformas com recursos limitados (sensores, dispositivos móveis, IoT), baseado no paper de Simplício Jr. et al. ([PiLBA 2008](https://ceur-ws.org/Vol-397/paper8.pdf)).
 
 ## Especificações Técnicas
 
