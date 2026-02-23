@@ -3,7 +3,8 @@ package curupira2
 import (
 	"crypto/cipher"
 	"fmt"
-	"crypto/subtle"
+	
+	"github.com/pedroalbanese/curupira2/internal/subtle"
 )
 
 // BlockSize constante do tamanho do bloco (12 bytes)
@@ -321,43 +322,32 @@ func (c *Cipher) Crypt(dst, src []byte, dirDecryption byte) {
 
 // Encrypt encripta um bloco
 func (c *Cipher) Encrypt(dst, src []byte) {
-	temp := make([]byte, BlockSize)
-	c.Crypt(temp, src, 0)
-
-	// Reorganiza para formato row-major (C style)
-	dst[0] = temp[0]   // (0,0)
-	dst[1] = temp[3]   // (0,1)
-	dst[2] = temp[6]   // (0,2)
-	dst[3] = temp[9]   // (0,3)
-	dst[4] = temp[1]   // (1,0)
-	dst[5] = temp[4]   // (1,1)
-	dst[6] = temp[7]   // (1,2)
-	dst[7] = temp[10]  // (1,3)
-	dst[8] = temp[2]   // (2,0)
-	dst[9] = temp[5]   // (2,1)
-	dst[10] = temp[8]  // (2,2)
-	dst[11] = temp[11] // (2,3)
+	if len(src) < BlockSize {
+		panic("curupira1: input not full block")
+	}
+	if len(dst) < BlockSize {
+		panic("curupira1: output not full block")
+	}
+	if subtle.InexactOverlap(dst[:BlockSize], src[:BlockSize]) {
+		panic("curupira1: invalid buffer overlap")
+	}
+	
+	c.Crypt(dst, src, 0)
 }
 
 // Decrypt decripta um bloco
 func (c *Cipher) Decrypt(dst, src []byte) {
-	temp := make([]byte, BlockSize)
-
-	// Reorganiza do formato row-major para column-major
-	temp[0] = src[0]   // (0,0)
-	temp[1] = src[4]   // (1,0)
-	temp[2] = src[8]   // (2,0)
-	temp[3] = src[1]   // (0,1)
-	temp[4] = src[5]   // (1,1)
-	temp[5] = src[9]   // (2,1)
-	temp[6] = src[2]   // (0,2)
-	temp[7] = src[6]   // (1,2)
-	temp[8] = src[10]  // (2,2)
-	temp[9] = src[3]   // (0,3)
-	temp[10] = src[7]  // (1,3)
-	temp[11] = src[11] // (2,3)
-
-	c.Crypt(dst, temp, 1)
+	if len(src) < BlockSize {
+		panic("curupira1: input not full block")
+	}
+	if len(dst) < BlockSize {
+		panic("curupira1: output not full block")
+	}
+	if subtle.InexactOverlap(dst[:BlockSize], src[:BlockSize]) {
+		panic("curupira1: invalid buffer overlap")
+	}
+	
+	c.Crypt(dst, src, 1)
 }
 
 // Sct aplica a transformação Square Complete Transform (4 rounds não chaveados)
