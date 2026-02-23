@@ -269,25 +269,7 @@ class Curupira2 {
             throw new InvalidArgumentException("Plaintext must be " . self::BLOCK_SIZE . " bytes");
         }
         
-        $temp = $this->crypt($plaintext, 0);
-        $temp_arr = array_values(unpack('C*', $temp));
-        
-        // Reorganize to row-major (C style)
-        $dst = array_fill(0, self::BLOCK_SIZE, 0);
-        $dst[0] = $temp_arr[0];   // (0,0)
-        $dst[1] = $temp_arr[3];   // (0,1)
-        $dst[2] = $temp_arr[6];   // (0,2)
-        $dst[3] = $temp_arr[9];   // (0,3)
-        $dst[4] = $temp_arr[1];   // (1,0)
-        $dst[5] = $temp_arr[4];   // (1,1)
-        $dst[6] = $temp_arr[7];   // (1,2)
-        $dst[7] = $temp_arr[10];  // (1,3)
-        $dst[8] = $temp_arr[2];   // (2,0)
-        $dst[9] = $temp_arr[5];   // (2,1)
-        $dst[10] = $temp_arr[8];  // (2,2)
-        $dst[11] = $temp_arr[11]; // (2,3)
-        
-        return pack('C*', ...$dst);
+        return $this->crypt($plaintext, 0);
     }
     
     public function decryptBlock($ciphertext) {
@@ -295,25 +277,8 @@ class Curupira2 {
             throw new InvalidArgumentException("Ciphertext must be " . self::BLOCK_SIZE . " bytes");
         }
         
-        $c_arr = array_values(unpack('C*', $ciphertext));
-        
-        // Reorganize from row-major to column-major
-        $temp = array_fill(0, self::BLOCK_SIZE, 0);
-        $temp[0] = $c_arr[0];   // (0,0)
-        $temp[1] = $c_arr[4];   // (1,0)
-        $temp[2] = $c_arr[8];   // (2,0)
-        $temp[3] = $c_arr[1];   // (0,1)
-        $temp[4] = $c_arr[5];   // (1,1)
-        $temp[5] = $c_arr[9];   // (2,1)
-        $temp[6] = $c_arr[2];   // (0,2)
-        $temp[7] = $c_arr[6];   // (1,2)
-        $temp[8] = $c_arr[10];  // (2,2)
-        $temp[9] = $c_arr[3];   // (0,3)
-        $temp[10] = $c_arr[7];  // (1,3)
-        $temp[11] = $c_arr[11]; // (2,3)
-        
-        return $this->crypt(pack('C*', ...$temp), 1);
-    }
+        return $this->crypt($ciphertext, 1);
+}
     
     public function sct($data) {
         if (strlen($data) != self::BLOCK_SIZE) {
