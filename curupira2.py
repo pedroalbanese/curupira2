@@ -238,47 +238,15 @@ class Curupira2:
         """Encrypt a single block"""
         if len(plaintext) != self.BLOCK_SIZE:
             raise ValueError(f"Plaintext must be {self.BLOCK_SIZE} bytes")
-        
-        temp = self.crypt(plaintext, 0)
-        
-        # Reorganize to row-major (C style)
-        dst = bytearray(self.BLOCK_SIZE)
-        dst[0] = temp[0]   # (0,0)
-        dst[1] = temp[3]   # (0,1)
-        dst[2] = temp[6]   # (0,2)
-        dst[3] = temp[9]   # (0,3)
-        dst[4] = temp[1]   # (1,0)
-        dst[5] = temp[4]   # (1,1)
-        dst[6] = temp[7]   # (1,2)
-        dst[7] = temp[10]  # (1,3)
-        dst[8] = temp[2]   # (2,0)
-        dst[9] = temp[5]   # (2,1)
-        dst[10] = temp[8]  # (2,2)
-        dst[11] = temp[11] # (2,3)
-        
-        return bytes(dst)
     
+        return self.crypt(plaintext, 0)
+
     def decrypt_block(self, ciphertext: bytes) -> bytes:
         """Decrypt a single block"""
         if len(ciphertext) != self.BLOCK_SIZE:
             raise ValueError(f"Ciphertext must be {self.BLOCK_SIZE} bytes")
         
-        # Reorganize from row-major to column-major
-        temp = bytearray(self.BLOCK_SIZE)
-        temp[0] = ciphertext[0]   # (0,0)
-        temp[1] = ciphertext[4]   # (1,0)
-        temp[2] = ciphertext[8]   # (2,0)
-        temp[3] = ciphertext[1]   # (0,1)
-        temp[4] = ciphertext[5]   # (1,1)
-        temp[5] = ciphertext[9]   # (2,1)
-        temp[6] = ciphertext[2]   # (0,2)
-        temp[7] = ciphertext[6]   # (1,2)
-        temp[8] = ciphertext[10]  # (2,2)
-        temp[9] = ciphertext[3]   # (0,3)
-        temp[10] = ciphertext[7]  # (1,3)
-        temp[11] = ciphertext[11] # (2,3)
-        
-        return self.crypt(bytes(temp), 1)
+        return self.crypt(ciphertext, 1)
     
     def sct(self, data: bytes) -> bytes:
         """Square-Complete Transform (4 unkeyed rounds)"""
