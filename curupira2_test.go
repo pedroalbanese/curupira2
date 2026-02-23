@@ -11,66 +11,120 @@ var testVectors = []struct {
 	name      string
 	keyHex    string
 	plainHex  string
-	cipherHex string // Resultado esperado em formato C (row-major)
+	cipherHex string
 }{
-	// Vetores para chave de 12 bytes (96 bits)
+	// ========== CHAVE 12 BYTES ==========
 	{
 		name:      "Chave 12 bytes zeros, plain zeros",
 		keyHex:    "000000000000000000000000",
 		plainHex:  "000000000000000000000000",
-		cipherHex: "e89cf298824a80eaf1f9d894",
+		cipherHex: "e882f19c4af9f280d898ea94",
 	},
 	{
-		name:      "Chave 12 bytes zeros, plain 1 na primeira posição",
+		name:      "Chave 12 bytes zeros, plain 1 na primeira",
 		keyHex:    "000000000000000000000000",
 		plainHex:  "010000000000000000000000",
-		cipherHex: "b9f0993d580fbb2d27aed365",
+		cipherHex: "b95827f00fae99bbd33d2d65",
 	},
 	{
-		name:      "Chave 12 bytes não zero (0-11), plain 0x80-0x8b",
+		name:      "Chave 12 bytes zeros, plain 0x80-0x8b",
+		keyHex:    "000000000000000000000000",
+		plainHex:  "808182838485868788898a8b",
+		cipherHex: "706aee2f52543e31314dea63",
+	},
+	{
+		name:      "Chave 12 bytes 0-11, plain zeros",
+		keyHex:    "000102030405060708090a0b",
+		plainHex:  "000000000000000000000000",
+		cipherHex: "40ab78a1ad48a2fee38e9d45",
+	},
+	{
+		name:      "Chave 12 bytes 0-11, plain 1 na primeira",
+		keyHex:    "000102030405060708090a0b",
+		plainHex:  "010000000000000000000000",
+		cipherHex: "2fc9284498fd2acd78cca580",
+	},
+	{
+		name:      "Chave 12 bytes 0-11, plain 0x80-0x8b",
 		keyHex:    "000102030405060708090a0b",
 		plainHex:  "808182838485868788898a8b",
-		cipherHex: "b75001e7d7380fa4c4343d1c",
+		cipherHex: "b7d7c4503834010f3de7a41c",
 	},
 
-	// Vetores para chave de 18 bytes (144 bits)
+	// ========== CHAVE 18 BYTES ==========
 	{
 		name:      "Chave 18 bytes zeros, plain zeros",
 		keyHex:    "000000000000000000000000000000000000",
 		plainHex:  "000000000000000000000000",
-		cipherHex: "d929b6aa7d50332a2c6cb543",
+		cipherHex: "d97d2c29506cb633b5aa2a43",
 	},
 	{
-		name:      "Chave 18 bytes zeros, plain 1 na primeira posição",
+		name:      "Chave 18 bytes zeros, plain 1 na primeira",
 		keyHex:    "000000000000000000000000000000000000",
 		plainHex:  "010000000000000000000000",
-		cipherHex: "a8dfe9e5ae518d18647ca9dc",
+		cipherHex: "a8ae64df517ce98da9e518dc",
 	},
 	{
-		name:      "Chave 18 bytes não zero (0-17), plain 0x80-0x8b",
+		name:      "Chave 18 bytes zeros, plain 0x80-0x8b",
+		keyHex:    "000000000000000000000000000000000000",
+		plainHex:  "808182838485868788898a8b",
+		cipherHex: "b38d6fd0c12eb27b2537bd9b",
+	},
+	{
+		name:      "Chave 18 bytes 0-17, plain zeros",
+		keyHex:    "000102030405060708090a0b0c0d0e0f1011",
+		plainHex:  "000000000000000000000000",
+		cipherHex: "f80fde5324978cf0e41b6513",
+	},
+	{
+		name:      "Chave 18 bytes 0-17, plain 1 na primeira",
+		keyHex:    "000102030405060708090a0b0c0d0e0f1011",
+		plainHex:  "010000000000000000000000",
+		cipherHex: "8620adcb7162cd5f6237a5b3",
+	},
+	{
+		name:      "Chave 18 bytes 0-17, plain 0x80-0x8b",
 		keyHex:    "000102030405060708090a0b0c0d0e0f1011",
 		plainHex:  "808182838485868788898a8b",
-		cipherHex: "6527e2104bbc4a5dd069d0b4",
+		cipherHex: "654bd027bc69e24ad0105db4",
 	},
 
-	// Vetores para chave de 24 bytes (192 bits)
+	// ========== CHAVE 24 BYTES ==========
 	{
 		name:      "Chave 24 bytes zeros, plain zeros",
 		keyHex:    "000000000000000000000000000000000000000000000000",
 		plainHex:  "000000000000000000000000",
-		cipherHex: "9d90a47828630c0bc98b0172",
+		cipherHex: "9d28c990638ba40c01780b72",
 	},
 	{
-		name:      "Chave 24 bytes zeros, plain 1 na primeira posição",
+		name:      "Chave 24 bytes zeros, plain 1 na primeira",
 		keyHex:    "000000000000000000000000000000000000000000000000",
 		plainHex:  "010000000000000000000000",
-		cipherHex: "7bfceda2093bf12498226c82",
+		cipherHex: "7b0998fc3b22edf16ca22482",
 	},
 	{
-		name:      "Chave 24 bytes não zero (0-23), plain 0x80-0x8b",
+		name:      "Chave 24 bytes zeros, plain 0x80-0x8b",
+		keyHex:    "000000000000000000000000000000000000000000000000",
+		plainHex:  "808182838485868788898a8b",
+		cipherHex: "6da4e42803f3bf218b84cb12",
+	},
+	{
+		name:      "Chave 24 bytes 0-23, plain zeros",
+		keyHex:    "000102030405060708090a0b0c0d0e0f1011121314151617",
+		plainHex:  "000000000000000000000000",
+		cipherHex: "6b0a8488a94903e46c3dcf18",
+	},
+	{
+		name:      "Chave 24 bytes 0-23, plain 1 na primeira",
+		keyHex:    "000102030405060708090a0b0c0d0e0f1011121314151617",
+		plainHex:  "010000000000000000000000",
+		cipherHex: "a57a7882798f46b088ead5fb",
+	},
+	{
+		name:      "Chave 24 bytes 0-23, plain 0x80-0x8b",
 		keyHex:    "000102030405060708090a0b0c0d0e0f1011121314151617",
 		plainHex:  "808182838485868788898a8b",
-		cipherHex: "9580d187ec496587f3df0ce6",
+		cipherHex: "95ecf38049dfd1650c8787e6",
 	},
 }
 
