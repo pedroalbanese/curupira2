@@ -3,7 +3,8 @@ package curupira2
 import (
 	"crypto/cipher"
 	"fmt"
-	"crypto/subtle"
+
+	"github.com/pedroalbanese/curupira2/internal/subtle"
 )
 
 // BlockSize constante do tamanho do bloco (12 bytes)
